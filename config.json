@@ -1,0 +1,27 @@
+{
+  "ball_count": 0,
+  "phase": "Teleop",
+  "shortcuts": {
+    "add_small": "o",
+    "add_large": "p",
+    "minus_small": "[",
+    "minus_large": "]",
+    "quit": "q",
+    "toggle_phase": "t",
+    "reset": "r"
+  },
+  "window": {
+    "x": 674,
+    "y": 114,
+    "opacity": 0.85
+  },
+  "amounts": {
+    "add_small": 1,
+    "add_large": 5,
+    "minus_small": 1,
+    "minus_large": 5
+  },
+  "auto_score": 0,
+  "teleop_score": 0,
+  "custom_shortcuts": []
+}
