@@ -36,7 +36,10 @@ CONFIG_PATH = _base_path / "config.json"
 def load_config():
     """加载配置文件"""
     default = {
+        # 中的数量（命中）
         "ball_count": 0,
+        # 歪的数量（未中）
+        "miss_count": 0,
         "phase": "Auto",
         "auto_score": 0,
         "teleop_score": 0,
@@ -45,10 +48,15 @@ def load_config():
             "add_large": "p",
             "minus_small": "[",
             "minus_large": "]",
+            "crooked_add": "a",
+            "crooked_minus": "s",
             "toggle_phase": "t",
+            "toggle_crooked_mode": "<tab>",
             "reset": "r",
             "quit": "q",
         },
+        # 歪计数模式：total_fixed = 总数不变；center_fixed = 中数不变
+        "crooked_mode": "total_fixed",
         "custom_shortcuts": [],
         "window": {"x": 100, "y": 100, "opacity": 0.85},
     }
@@ -78,12 +86,22 @@ def load_config():
                 sc["toggle_phase"] = "t"
             if "reset" not in sc:
                 sc["reset"] = "r"
+            if "crooked_add" not in sc:
+                sc["crooked_add"] = "a"
+            if "crooked_minus" not in sc:
+                sc["crooked_minus"] = "s"
+            if "toggle_crooked_mode" not in sc:
+                sc["toggle_crooked_mode"] = "<tab>"
             if "custom_shortcuts" not in data:
                 data["custom_shortcuts"] = []
             if "auto_score" not in data:
                 data["auto_score"] = 0
             if "teleop_score" not in data:
                 data["teleop_score"] = 0
+            if "miss_count" not in data:
+                data["miss_count"] = 0
+            if "crooked_mode" not in data:
+                data["crooked_mode"] = "total_fixed"
             return data
     save_config(default)
     return default
@@ -105,6 +123,9 @@ class HotkeySignal(QObject):
     reset = pyqtSignal()
     quit_app = pyqtSignal()
     custom_delta = pyqtSignal(int)  # 自定义快捷键触发的增减量（正为加，负为减）
+    crooked_add = pyqtSignal()  # 歪 +1
+    crooked_minus = pyqtSignal()  # 歪 -1
+    toggle_crooked_mode = pyqtSignal()  # 切换歪计数模式
 
 
 class KeyRecorder(QObject):
@@ -113,13 +134,14 @@ class KeyRecorder(QObject):
 
 
 class ShortcutSettingsDialog(QDialog):
-    """快捷键设置：固定 4 组 + 自定义行"""
+    """快捷键设置：固定快捷键 + 歪计数模式 + 自定义行"""
 
-    def __init__(self, shortcuts, custom_shortcuts, parent=None):
+    def __init__(self, shortcuts, custom_shortcuts, crooked_mode, parent=None):
         super().__init__(parent)
         self.setWindowTitle("设置")
         self.shortcuts = dict(shortcuts)
         self.custom_shortcuts = list(custom_shortcuts)
+        self.crooked_mode = crooked_mode or "total_fixed"
         self.custom_rows = []
 
         layout = QVBoxLayout(self)
@@ -170,6 +192,43 @@ class ShortcutSettingsDialog(QDialog):
         row4.addWidget(QLabel("（固定 -5）"))
         form.addRow("减球 -5:", row4)
 
+        # 歪 +1
+        row4_1 = QHBoxLayout()
+        self.crooked_add_edit = QLineEdit(self.shortcuts.get("crooked_add", "a"))
+        self.crooked_add_edit.setMaximumWidth(60)
+        self.crooked_add_btn = QPushButton("录制")
+        self.crooked_add_btn.clicked.connect(lambda: self._start_record(self.crooked_add_edit))
+        row4_1.addWidget(self.crooked_add_edit)
+        row4_1.addWidget(self.crooked_add_btn)
+        row4_1.addWidget(QLabel("（歪 +1）"))
+        form.addRow("歪 +1:", row4_1)
+
+        # 歪 -1
+        row4_2 = QHBoxLayout()
+        self.crooked_minus_edit = QLineEdit(self.shortcuts.get("crooked_minus", "s"))
+        self.crooked_minus_edit.setMaximumWidth(60)
+        self.crooked_minus_btn = QPushButton("录制")
+        self.crooked_minus_btn.clicked.connect(lambda: self._start_record(self.crooked_minus_edit))
+        row4_2.addWidget(self.crooked_minus_edit)
+        row4_2.addWidget(self.crooked_minus_btn)
+        row4_2.addWidget(QLabel("（歪 -1）"))
+        form.addRow("歪 -1:", row4_2)
+
+        # 切换歪计数模式
+        row4_3 = QHBoxLayout()
+        self.toggle_crooked_mode_edit = QLineEdit(
+            self.shortcuts.get("toggle_crooked_mode", "<tab>")
+        )
+        self.toggle_crooked_mode_edit.setMaximumWidth(60)
+        self.toggle_crooked_mode_btn = QPushButton("录制")
+        self.toggle_crooked_mode_btn.clicked.connect(
+            lambda: self._start_record(self.toggle_crooked_mode_edit)
+        )
+        row4_3.addWidget(self.toggle_crooked_mode_edit)
+        row4_3.addWidget(self.toggle_crooked_mode_btn)
+        row4_3.addWidget(QLabel("（切换歪计数模式）"))
+        form.addRow("切换歪模式:", row4_3)
+
         # 切换 Auto/Teleop
         row5 = QHBoxLayout()
         self.toggle_phase_edit = QLineEdit(self.shortcuts.get("toggle_phase", "t"))
@@ -201,6 +260,19 @@ class ShortcutSettingsDialog(QDialog):
         form.addRow("关闭程序:", row7)
 
         layout.addLayout(form)
+
+        # 歪计数模式
+        mode_row = QHBoxLayout()
+        self.crooked_mode_combo = QComboBox()
+        self.crooked_mode_combo.addItems(["总数不变", "中数不变"])
+        if self.crooked_mode == "center_fixed":
+            self.crooked_mode_combo.setCurrentIndex(1)
+        else:
+            self.crooked_mode_combo.setCurrentIndex(0)
+        mode_row.addWidget(QLabel("歪计数模式:"))
+        mode_row.addWidget(self.crooked_mode_combo)
+        mode_row.addStretch()
+        layout.addLayout(mode_row)
 
         # 自定义快捷键
         layout.addWidget(QLabel("自定义："))
@@ -305,17 +377,24 @@ class ShortcutSettingsDialog(QDialog):
             amt = r["spin"].value()
             typ = "minus" if r["combo"].currentText() == "减" else "add"
             custom.append({"key": k, "amount": amt, "type": typ})
+        mode_index = self.crooked_mode_combo.currentIndex()
+        crooked_mode = "center_fixed" if mode_index == 1 else "total_fixed"
         return {
             "shortcuts": {
                 "add_small": self.add_small_edit.text().strip() or "o",
                 "add_large": self.add_large_edit.text().strip() or "p",
                 "minus_small": self.minus_small_edit.text().strip() or "[",
                 "minus_large": self.minus_large_edit.text().strip() or "]",
+                "crooked_add": self.crooked_add_edit.text().strip() or "a",
+                "crooked_minus": self.crooked_minus_edit.text().strip() or "s",
+                "toggle_crooked_mode": self.toggle_crooked_mode_edit.text().strip()
+                or "<tab>",
                 "toggle_phase": self.toggle_phase_edit.text().strip() or "t",
                 "reset": self.reset_edit.text().strip() or "r",
                 "quit": self.quit_edit.text().strip() or "q",
             },
             "custom_shortcuts": custom,
+            "crooked_mode": crooked_mode,
         }
 
 
@@ -431,9 +510,8 @@ class ScorerWindow(QMainWindow):
             """
         )
 
-        # 球数显示（双击归零，拖拽移动窗口）
+        # 球数显示（中 | 歪 | 总，双击归零，拖拽移动窗口）
         self.ball_label = DraggableBallLabel(self)
-        self.ball_label.setText(str(self.config.get("ball_count", 0)))
         self.ball_label.setFont(QFont("Segoe UI", 36))
         self.ball_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.ball_label)
@@ -470,6 +548,12 @@ class ScorerWindow(QMainWindow):
         self.settings_btn.clicked.connect(self._open_shortcut_settings)
         layout.addWidget(self.settings_btn)
 
+        # 按键提示
+        self.hint_label = QLabel()
+        self.hint_label.setFont(QFont("Segoe UI", 9))
+        self.hint_label.setWordWrap(True)
+        layout.addWidget(self.hint_label)
+
         # 信号对象，供 pynput 回调使用
         self.hotkey_signal = HotkeySignal()
         self.hotkey_signal.add_small.connect(self._add_small)
@@ -480,6 +564,55 @@ class ScorerWindow(QMainWindow):
         self.hotkey_signal.reset.connect(self._do_reset)
         self.hotkey_signal.quit_app.connect(self._quit_app)
         self.hotkey_signal.custom_delta.connect(self._update_balls)
+        self.hotkey_signal.crooked_add.connect(self._crooked_add)
+        self.hotkey_signal.crooked_minus.connect(self._crooked_minus)
+        self.hotkey_signal.toggle_crooked_mode.connect(self._toggle_crooked_mode)
+
+        # 初始刷新显示
+        self._refresh_ball_display()
+        self._refresh_score_display()
+        self._refresh_hint()
+
+    def _shortcut_text(self, key: str) -> str:
+        """将快捷键字符串用于展示（空格显示为 Space）"""
+        if key == " ":
+            return "Space"
+        if key == "<tab>":
+            return "Tab"
+        return key
+
+    def _refresh_hint(self):
+        sc = self.config.get("shortcuts", {})
+        mode = self.config.get("crooked_mode", "total_fixed")
+        mode_cn = "总数不变" if mode == "total_fixed" else "中数不变"
+        text = (
+            f"快捷键："
+            f"+1={self._shortcut_text(sc.get('add_small', 'o'))}  "
+            f"+5={self._shortcut_text(sc.get('add_large', 'p'))}  "
+            f"-1={self._shortcut_text(sc.get('minus_small', '['))}  "
+            f"-5={self._shortcut_text(sc.get('minus_large', ']'))}\n"
+            f"歪+1={self._shortcut_text(sc.get('crooked_add', 'a'))}  "
+            f"歪-1={self._shortcut_text(sc.get('crooked_minus', 's'))}  "
+            f"切换阶段={self._shortcut_text(sc.get('toggle_phase', 't'))}  "
+            f"切换歪模式={self._shortcut_text(sc.get('toggle_crooked_mode', '<tab>'))}  "
+            f"清零={self._shortcut_text(sc.get('reset', 'r'))}  "
+            f"退出={self._shortcut_text(sc.get('quit', 'q'))}\n"
+            f"当前歪模式：{mode_cn}（修改快捷键需重启生效）"
+        )
+        self.hint_label.setText(text)
+
+    def _center_count(self):
+        return self.config.get("ball_count", 0)
+
+    def _miss_count(self):
+        return self.config.get("miss_count", 0)
+
+    def _total_count(self):
+        return self._center_count() + self._miss_count()
+
+    def _refresh_ball_display(self):
+        text = f"中 {self._center_count()} | 歪 {self._miss_count()} | 总 {self._total_count()}"
+        self.ball_label.setText(text)
 
     def _total_score(self):
         return self.config.get("auto_score", 0) + self.config.get("teleop_score", 0)
@@ -512,28 +645,120 @@ class ScorerWindow(QMainWindow):
         self._update_balls(-5)
 
     def _update_balls(self, delta):
-        count = self.config.get("ball_count", 0) + delta
-        if count < 0:
-            count = 0
-        self.config["ball_count"] = count
+        # 原有快捷键作用于“中”的数量
+        center_before = self.config.get("ball_count", 0)
+        center_after = center_before + delta
+        if center_after < 0:
+            center_after = 0
+        self.config["ball_count"] = center_after
 
-        # 按阶段累加积分（每球 1 分）
+        # 实际变化量用于积分统计
+        applied_delta = center_after - center_before
+
+        # 按阶段累加积分（每个“中”1 分）
         phase = self.config.get("phase", "Auto")
         if phase == "Auto":
-            self.config["auto_score"] = max(0, self.config.get("auto_score", 0) + delta)
+            self.config["auto_score"] = max(
+                0, self.config.get("auto_score", 0) + applied_delta
+            )
         else:
-            self.config["teleop_score"] = max(0, self.config.get("teleop_score", 0) + delta)
+            self.config["teleop_score"] = max(
+                0, self.config.get("teleop_score", 0) + applied_delta
+            )
 
-        self.ball_label.setText(str(count))
+        self._refresh_ball_display()
         self._refresh_score_display()
         save_config(self.config)
+
+    def _crooked_add(self):
+        """歪 +1：根据模式调整中/歪/总"""
+        mode = self.config.get("crooked_mode", "total_fixed")
+        center = self.config.get("ball_count", 0)
+        miss = self.config.get("miss_count", 0)
+
+        if mode == "total_fixed":
+            # 总不变：歪+1，中-1
+            if center <= 0:
+                return
+            center -= 1
+            miss += 1
+            score_delta = -1
+        else:
+            # 中数不变：歪+1，总+1
+            miss += 1
+            score_delta = 0
+
+        self.config["ball_count"] = max(0, center)
+        self.config["miss_count"] = max(0, miss)
+
+        # 只有中数变化时才改积分
+        if score_delta != 0:
+            phase = self.config.get("phase", "Auto")
+            if phase == "Auto":
+                self.config["auto_score"] = max(
+                    0, self.config.get("auto_score", 0) + score_delta
+                )
+            else:
+                self.config["teleop_score"] = max(
+                    0, self.config.get("teleop_score", 0) + score_delta
+                )
+
+        self._refresh_ball_display()
+        self._refresh_score_display()
+        save_config(self.config)
+
+    def _crooked_minus(self):
+        """歪 -1：根据模式调整中/歪/总"""
+        mode = self.config.get("crooked_mode", "total_fixed")
+        center = self.config.get("ball_count", 0)
+        miss = self.config.get("miss_count", 0)
+
+        if miss <= 0:
+            return
+
+        if mode == "total_fixed":
+            # 总不变：歪-1，中+1
+            miss -= 1
+            center += 1
+            score_delta = 1
+        else:
+            # 中数不变：歪-1，总-1
+            miss -= 1
+            score_delta = 0
+
+        self.config["ball_count"] = max(0, center)
+        self.config["miss_count"] = max(0, miss)
+
+        if score_delta != 0:
+            phase = self.config.get("phase", "Auto")
+            if phase == "Auto":
+                self.config["auto_score"] = max(
+                    0, self.config.get("auto_score", 0) + score_delta
+                )
+            else:
+                self.config["teleop_score"] = max(
+                    0, self.config.get("teleop_score", 0) + score_delta
+                )
+
+        self._refresh_ball_display()
+        self._refresh_score_display()
+        save_config(self.config)
+
+    def _toggle_crooked_mode(self):
+        """切换歪计数模式 total_fixed / center_fixed"""
+        mode = self.config.get("crooked_mode", "total_fixed")
+        new_mode = "center_fixed" if mode == "total_fixed" else "total_fixed"
+        self.config["crooked_mode"] = new_mode
+        save_config(self.config)
+        self._refresh_hint()
 
     def _do_reset(self):
         """清零球数和积分"""
         self.config["ball_count"] = 0
+        self.config["miss_count"] = 0
         self.config["auto_score"] = 0
         self.config["teleop_score"] = 0
-        self.ball_label.setText("0")
+        self._refresh_ball_display()
         self._refresh_score_display()
         save_config(self.config)
 
@@ -545,12 +770,14 @@ class ScorerWindow(QMainWindow):
         dialog = ShortcutSettingsDialog(
             self.config.get("shortcuts", {}),
             self.config.get("custom_shortcuts", []),
+            self.config.get("crooked_mode", "total_fixed"),
             self,
         )
         if dialog.exec() == QDialog.DialogCode.Accepted:
             settings = dialog.get_settings()
             self.config["shortcuts"] = settings["shortcuts"]
             self.config["custom_shortcuts"] = settings["custom_shortcuts"]
+            self.config["crooked_mode"] = settings.get("crooked_mode", "total_fixed")
             save_config(self.config)
             QMessageBox.information(
                 self,
@@ -558,6 +785,8 @@ class ScorerWindow(QMainWindow):
                 "快捷键与数量已保存，请重启程序生效。",
                 QMessageBox.StandardButton.Ok,
             )
+            # 更新界面上的提示文字
+            self._refresh_hint()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:

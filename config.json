@@ -1,18 +1,21 @@
 {
-  "ball_count": 0,
+  "ball_count": 25,
   "phase": "Teleop",
   "shortcuts": {
     "add_small": "o",
     "add_large": "p",
     "minus_small": "[",
     "minus_large": "]",
-    "quit": "q",
+    "crooked_add": "a",
+    "crooked_minus": "s",
     "toggle_phase": "t",
-    "reset": "r"
+    "reset": "r",
+    "quit": "q",
+    "toggle_crooked_mode": "<tab>"
   },
   "window": {
-    "x": 674,
-    "y": 114,
+    "x": 953,
+    "y": 47,
     "opacity": 0.85
   },
   "amounts": {
@@ -22,6 +25,19 @@
     "minus_large": 5
   },
   "auto_score": 0,
-  "teleop_score": 0,
-  "custom_shortcuts": []
+  "teleop_score": 25,
+  "custom_shortcuts": [
+    {
+      "key": ",",
+      "amount": 3,
+      "type": "add"
+    },
+    {
+      "key": ".",
+      "amount": 2,
+      "type": "add"
+    }
+  ],
+  "miss_count": 19,
+  "crooked_mode": "center_fixed"
 }
