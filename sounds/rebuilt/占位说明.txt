@@ -1,0 +1,14 @@
+FRC 2026 Rebuilt — Event 提示音（可选 WAV 覆盖）
+
+将下列文件名放在本目录下，timer.py 会优先播放它们；未放置时使用程序内置短纯音。
+
+  CavalryCharge.wav — MATCH start（0:20 for AUTO）
+  Buzzer.wav        — AUTO ends（0:00 for AUTO）/ MATCH stopped
+  ThreeBells.wav    — TELEOP & TRANSITION begins（2:20）
+  Shift.wav         — ALLIANCE SHIFT starts（2:10 / 1:45 / 1:20 / 0:55）
+  EndGame.wav       — END GAME begins（0:30）
+  Sonar.wav         — MATCH end（0:00）
+  Sonar.wav         — n/a（手动 Foghorn 按钮）
+
+获取途径示例：FIRST 官方发布素材、现场 FMS/场边录音（遵守版权与场地规定）、
+Chief Delphi 等社区中用户分享的合法链接；请自行判断授权后使用。
